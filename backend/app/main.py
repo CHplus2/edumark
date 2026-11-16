@@ -41,7 +41,10 @@ def health():
 
 @app.get("/api/assignments")
 def list_assignments():
-    return rows("""SELECT a.*, (SELECT COUNT(*) FROM submissions s WHERE s.assignment_id=a.id) AS n_submissions
+    return rows("""SELECT a.id, a.title, a.type, a.total_marks, a.created_at,
+                   (SELECT COUNT(*) FROM submissions s WHERE s.assignment_id=a.id) AS n_submissions,
+                   (SELECT COUNT(*) FROM submissions s WHERE s.assignment_id=a.id AND s.status='marked') AS n_marked,
+                   (SELECT COUNT(*) FROM submissions s WHERE s.assignment_id=a.id AND s.final=1) AS n_final
                    FROM assignments a ORDER BY a.id DESC""")
 
 

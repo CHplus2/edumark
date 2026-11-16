@@ -1,79 +1,20 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EduMark</title>
-<style>
- body{font-family:system-ui,sans-serif;margin:0;background:#f5f6f8;color:#222}
- header{background:#1f3a5f;color:#fff;padding:12px 24px;display:flex;justify-content:space-between;align-items:center}
- header a{color:#fff;cursor:pointer}
- main{max-width:1100px;margin:20px auto;padding:0 16px}
- .card{background:#fff;border-radius:8px;padding:16px;margin-bottom:16px;box-shadow:0 1px 3px #0002}
- label{display:block;margin:8px 0 2px;font-weight:600;font-size:14px}
- input,select,textarea{width:100%;padding:6px;box-sizing:border-box;font:inherit}
- button{padding:7px 14px;border:0;border-radius:5px;background:#2b6cb0;color:#fff;cursor:pointer;margin:4px 4px 4px 0}
- button.sec{background:#718096} button.ok{background:#2f855a}
- table{width:100%;border-collapse:collapse} th,td{padding:6px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top;font-size:14px}
- .badge{padding:2px 8px;border-radius:10px;font-size:12px;color:#fff}
- .pending{background:#a0aec0}.marking{background:#d69e2e}.marked{background:#2b6cb0}.error{background:#c53030}.final{background:#2f855a}
- .low{color:#c53030;font-weight:700}.medium{color:#b7791f}.high{color:#2f855a}
- .msg{padding:8px;border-radius:5px;margin:8px 0;background:#fefcbf} .msg.err{background:#fed7d7}
- dialog{max-width:700px;width:90%} pre{white-space:pre-wrap;max-height:300px;overflow:auto;background:#f7fafc;padding:8px}
- td input[type=number]{width:70px} td textarea{min-width:260px}
-</style></head><body>
-<header><b>EduMark</b><span><span id="llm"></span> &nbsp; <a onclick="home()">All assignments</a></span></header>
-<main id="app"></main>
-<dialog id="dlg"><div id="dlgbody"></div><button onclick="dlg.close()">Close</button></dialog>
-<script>
-const $=s=>document.querySelector(s), app=$('#app'), dlg=$('#dlg');
-let timer=null, curId=null;
-const esc=s=>(s??'').toString().replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-async function api(url,opt){const r=await fetch(url,opt);if(!r.ok){let m=r.statusText;try{m=(await r.json()).detail||m}catch{};throw new Error(m)}return r}
-function msg(t,err){const d=document.createElement('div');d.className='msg'+(err?' err':'');d.textContent=t;app.prepend(d);setTimeout(()=>d.remove(),6000)}
-
-async function init(){const h=await (await api('/api/health')).json();
- $('#llm').textContent=h.mock_llm?'⚠ mock marker (no API key)':'model: '+h.model; home()}
-
-async function home(){clearInterval(timer);curId=null;
- const list=await (await api('/api/assignments')).json();
- app.innerHTML=`<div class="card"><h2>New assignment</h2>
- <form id="f"><label>Title</label><input name="title" required>
- <label>Type</label><select name="type"><option value="essay">Essay / report</option><option value="short_answer">Short answers</option><option value="code">Code</option><option value="other">Other</option></select>
- <label>Total marks</label><input name="total_marks" type="number" value="100" min="1" step="any">
- <label>Instructions / notes for the marker (optional)</label><textarea name="instructions" rows="3"></textarea>
- <label>Marking guideline, answer sheet or sample answer (optional; PDF, DOCX, TXT; multiple allowed)</label><input name="references" type="file" multiple>
- <button>Create</button></form></div>
- <div class="card"><h2>Assignments</h2>${list.length?`<table><tr><th>Title</th><th>Type</th><th>Marks</th><th>Submissions</th></tr>${list.map(a=>`<tr><td><a href="#" onclick="openA(${a.id});return false">${esc(a.title)}</a></td><td>${a.type}</td><td>${a.total_marks}</td><td>${a.n_submissions}</td></tr>`).join('')}</table>`:'<i>None yet.</i>'}</div>`;
- $('#f').onsubmit=async e=>{e.preventDefault();try{const r=await (await api('/api/assignments',{method:'POST',body:new FormData(e.target)})).json();openA(r.id)}catch(x){msg(x.message,1)}}}
-
-async function openA(id){curId=id;await render();clearInterval(timer);timer=setInterval(async()=>{if(curId===id&&!document.activeElement.closest('table'))await render()},3000)}
-
-async function render(){
- const d=await (await api('/api/assignments/'+curId)).json(),a=d.assignment,S=d.submissions;
- const busy=S.some(s=>s.status==='marking'), todo=S.filter(s=>['pending','error'].includes(s.status)&&!s.final).length;
- const keep=app.querySelector('.msg');
- app.innerHTML=`<div class="card"><h2>${esc(a.title)}</h2><p>${a.type} · ${a.total_marks} marks · guideline: ${a.has_reference?'attached':'none'}</p>
- <label>Upload student submissions (files or a ZIP)</label><input id="up" type="file" multiple>
- <button onclick="upload()">Upload</button>
- <button class="ok" onclick="mark()" ${todo&&!busy?'':'disabled'}>Mark ${todo} pending</button>
- <button class="sec" onclick="finalizeAll()">Finalize all marked</button>
- <a href="/api/assignments/${a.id}/export.csv"><button class="sec">Export CSV</button></a></div>
- <div class="card"><h3>Review</h3>${S.length?`<table><tr><th>Student</th><th>Status</th><th>AI</th><th>Confidence</th><th>Final score /${a.total_marks}</th><th>Feedback</th><th></th></tr>
- ${S.map(s=>`<tr><td>${esc(s.student)}<br><small>${esc(s.filename)}</small></td>
- <td><span class="badge ${s.final?'final':s.status}">${s.final?'finalized':s.status}</span>${s.error?`<br><small>${esc(s.error)}</small>`:''}</td>
- <td>${s.ai_score??''}</td><td class="${s.confidence||''}">${s.confidence||''}</td>
- <td><input type="number" step="any" min="0" max="${a.total_marks}" value="${s.score??''}" ${s.status!=='marked'||s.final?'disabled':''} onchange="save(${s.id},{score:parseFloat(this.value)})"></td>
- <td><textarea rows="3" ${s.status!=='marked'||s.final?'disabled':''} onchange="save(${s.id},{feedback:this.value})">${esc(s.feedback)}</textarea></td>
- <td><button class="sec" onclick="view(${s.id})">View</button>${s.status==='marked'?`<button class="ok" onclick="save(${s.id},{final:${!s.final}},1)">${s.final?'Reopen':'Approve'}</button>`:''}</td></tr>`).join('')}</table>`:'<i>No submissions yet.</i>'}</div>`;
- if(keep)app.prepend(keep)}
-
-async function upload(){const f=$('#up').files;if(!f.length)return msg('Choose files first',1);
- const fd=new FormData();[...f].forEach(x=>fd.append('files',x));
- try{const r=await (await api(`/api/assignments/${curId}/submissions`,{method:'POST',body:fd})).json();
-  await render();msg(`Added ${r.added}.`+(r.problems.length?' Problems: '+r.problems.join('; '):''),r.problems.length>0)}catch(e){msg(e.message,1)}}
-async function mark(){try{await api(`/api/assignments/${curId}/mark`,{method:'POST'});await render()}catch(e){msg(e.message,1)}}
-async function finalizeAll(){if(!confirm('Finalize all marked submissions with the scores shown?'))return;await api(`/api/assignments/${curId}/finalize`,{method:'POST'});render()}
-async function save(id,body,rerender){try{await api('/api/submissions/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(rerender)render()}catch(e){msg(e.message,1);render()}}
-async function view(id){const [c,d]=await Promise.all([api('/api/submissions/'+id+'/content').then(r=>r.json()),api('/api/assignments/'+curId).then(r=>r.json())]);
- const s=d.submissions.find(x=>x.id===id);let cr=[];try{cr=JSON.parse(s.criteria_json||'[]')}catch{}
- $('#dlgbody').innerHTML=`<h3>${esc(c.student)}</h3><h4>AI breakdown</h4>${cr.length?`<table>${cr.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.score}/${x.max}</td><td>${esc(x.comment)}</td></tr>`).join('')}</table>`:'<i>Not marked yet</i>'}<h4>Submission</h4><pre>${esc(c.content)}</pre>`;dlg.showModal()}
-init();
-</script></body></html>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/" aria-label="EduMark home"><span class="logo">✓</span> EduMark</a>
+  <span id="llm" class="pill"></span>
+</header>
+<main id="app" aria-live="polite"></main>
+<div id="toasts" role="status"></div>
+<aside id="drawer" class="drawer" hidden aria-label="Submission review"></aside>
+<div id="scrim" class="scrim" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
